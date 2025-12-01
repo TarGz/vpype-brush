@@ -43,7 +43,12 @@ pyvenv.cfg
 Thumbs.db
 
 # Test outputs
+test/
+*.gcode
 test_output.gcode
 test_curve.gcode
 test_line.svg
 test_curve.svg
+
+# Documentation working files
+INSTALLATION_OPTIONS.md
