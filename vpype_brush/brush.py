@@ -53,6 +53,9 @@ def calculate_z(distance_from_start, total_distance, z_up, z_down, press_distanc
     """
     Calculate Z value based on position within stroke.
 
+    For short strokes where total_distance < press_distance + lift_distance,
+    the press and lift phases are scaled proportionally to avoid overlap.
+
     Args:
         distance_from_start: Cumulative distance from start of stroke
         total_distance: Total stroke length
@@ -66,14 +69,25 @@ def calculate_z(distance_from_start, total_distance, z_up, z_down, press_distanc
     """
     remaining_distance = total_distance - distance_from_start
 
+    # Handle short strokes: scale press/lift distances proportionally
+    if total_distance < press_distance + lift_distance:
+        # Scale the distances to fit within the stroke length
+        total_transition = press_distance + lift_distance
+        scale_factor = total_distance / total_transition if total_transition > 0 else 1.0
+        actual_press_distance = press_distance * scale_factor
+        actual_lift_distance = lift_distance * scale_factor
+    else:
+        actual_press_distance = press_distance
+        actual_lift_distance = lift_distance
+
     # Phase 1: Pressing down at start
-    if distance_from_start <= press_distance:
-        progress = distance_from_start / press_distance if press_distance > 0 else 1.0
+    if distance_from_start <= actual_press_distance:
+        progress = distance_from_start / actual_press_distance if actual_press_distance > 0 else 1.0
         return z_up + (z_down - z_up) * progress
 
     # Phase 3: Lifting up at end
-    elif remaining_distance <= lift_distance:
-        progress = (lift_distance - remaining_distance) / lift_distance if lift_distance > 0 else 1.0
+    elif remaining_distance <= actual_lift_distance:
+        progress = (actual_lift_distance - remaining_distance) / actual_lift_distance if actual_lift_distance > 0 else 1.0
         return z_down + (z_up - z_down) * progress
 
     # Phase 2: Constant pressure (middle)
@@ -167,6 +181,7 @@ def generate_gcode(document, z_up, z_down, press_distance, lift_distance, segmen
     """
     Generate G-code directly with Z variations.
     Properly scales coordinates from vpype's internal units to the target unit.
+    Uses simultaneous XYZ movements for fluid, natural brush strokes.
     """
     # Get the unit scale factor (converts from vpype internal units to target unit)
     # vpype uses CSS pixels internally (1px = 1/96 inch = 0.2645833mm)
@@ -220,7 +235,7 @@ def generate_gcode(document, z_up, z_down, press_distance, lift_distance, segmen
             y_start_scaled = y_start / unit_scale
             gcode_lines.append(f"G0 X{x_start_scaled:.4f} Y{y_start_scaled:.4f}")
 
-            # Draw the stroke with Z variation
+            # Draw the stroke with Z variation (simultaneous XYZ movement)
             for i, (x, y) in enumerate(points_2d):
                 z = calculate_z(
                     cumulative_distances[i],
@@ -233,6 +248,8 @@ def generate_gcode(document, z_up, z_down, press_distance, lift_distance, segmen
                 # Convert from vpype internal units to target unit
                 x_scaled = x / unit_scale
                 y_scaled = y / unit_scale
+
+                # Simultaneous XYZ move for fluid brush strokes
                 gcode_lines.append(f"G1 X{x_scaled:.4f} Y{y_scaled:.4f} Z{z:.4f}")
 
             # Pen up

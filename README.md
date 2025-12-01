@@ -95,7 +95,10 @@ Z-down                   \__________________/
 ## Usage Tips
 
 ### Short Strokes
-If a stroke is shorter than `press-distance + lift-distance`, the plugin smoothly transitions from up to down to up with no constant pressure phase.
+If a stroke is shorter than `press-distance + lift-distance`, the press and lift distances are automatically scaled proportionally to fit within the stroke length. This ensures smooth pressure transitions without the pen lifting prematurely.
+
+### Fluid 3D Movement
+The plugin uses simultaneous XYZ movements for natural, fluid brush strokes. The feed rate applies to the 3D path, creating smooth transitions as the brush presses down and lifts up while drawing.
 
 ### Fine Control
 Reduce `--segment-length` to 1.0 for ultra-smooth transitions (creates larger G-code files):
@@ -181,7 +184,11 @@ Built for the [vpype](https://github.com/abey79/vpype) ecosystem by [Abey79](htt
 
 ## Changelog
 
-### v0.2.1 (Current - Beta)
+### v0.2.2 (Current - Beta)
+- **FIXED**: Short stroke behavior - press/lift distances now scale proportionally for strokes shorter than press+lift distance
+- Improved fluid 3D movement with simultaneous XYZ motion
+
+### v0.2.1 (Beta)
 - **FIXED**: Added missing feed rate parameter (fixes Grbl error 22)
 - **ADDED**: `--feed-rate` option for drawing speed control (default: 1000 mm/min)
 
