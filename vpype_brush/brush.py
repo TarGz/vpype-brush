@@ -86,7 +86,7 @@ def calculate_z(distance_from_start, total_distance, z_up, z_down, press_distanc
 @click.option('--press-distance', default=50.0, type=float, help='Distance to press down at start (mm)')
 @click.option('--lift-distance', default=50.0, type=float, help='Distance to lift up at end (mm)')
 @click.option('--segment-length', default=2.0, type=float, help='Subdivision segment length (mm)')
-@click.option('--output', '-o', type=click.Path(), help='Output G-code file path (bypasses gwrite)')
+@click.option('--output', '-o', type=click.Path(), help='Output G-code file path')
 @vpype_cli.global_processor
 def brush(document, z_up, z_down, press_distance, lift_distance, segment_length, output):
     """
@@ -96,7 +96,7 @@ def brush(document, z_up, z_down, press_distance, lift_distance, segment_length,
     natural brush strokes with gradual pressure transitions at the start and end.
 
     Example:
-        vpype read input.svg brush --z-up -5 --z-down -20 gwrite output.gcode
+        vpype read input.svg brush --z-up -5 --z-down -20 --output output.gcode
     """
 
     if output:
@@ -104,7 +104,7 @@ def brush(document, z_up, z_down, press_distance, lift_distance, segment_length,
         generate_gcode(document, z_up, z_down, press_distance, lift_distance, segment_length, output)
         return document
     else:
-        # Process geometry and add Z metadata for gwrite
+        # Process geometry (subdivide lines with Z variations)
         process_geometry(document, z_up, z_down, press_distance, lift_distance, segment_length)
         return document
 
@@ -153,14 +153,8 @@ def process_geometry(document, z_up, z_down, press_distance, lift_distance, segm
             # Create new line with subdivided points
             new_line = np.array(points_3d)
 
-            # Store Z values as property (for potential future gwrite support)
-            z_values = [
-                calculate_z(d, total_distance, z_up, z_down, press_distance, lift_distance)
-                for d in cumulative_distances
-            ]
-
-            # Note: Current vpype/gwrite doesn't support Z metadata,
-            # so we'll need to use direct G-code output for now
+            # Note: Z values are calculated but not stored in vpype line metadata.
+            # Use --output flag for direct G-code generation with Z variations.
             new_lines.append(new_line)
 
         document.layers[layer_id] = vp.LineCollection(new_lines)

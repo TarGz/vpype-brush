@@ -11,7 +11,7 @@ pip install -e .
 ## Usage
 
 ```bash
-vpype read input.svg brush --z-up -5 --z-down -20 --press-distance 50 --lift-distance 50 gwrite --profile gcode output.gcode
+vpype read input.svg brush --z-up -5 --z-down -20 --press-distance 50 --lift-distance 50 --output output.gcode
 ```
 
 ## Parameters
