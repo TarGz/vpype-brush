@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vpype-brush"
+version = "0.1.0"
+description = "A vpype plugin that adds gradual Z-axis pressure variation to brush strokes"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "jterraz"},
+]
+dependencies = [
+    "vpype>=1.9",
+    "click",
+    "numpy",
+    "shapely",
+]
+
+[project.entry-points."vpype.plugins"]
+brush = "vpype_brush.brush:brush"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vpype_brush"]

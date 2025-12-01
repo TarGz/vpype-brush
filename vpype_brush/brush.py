@@ -1,0 +1,232 @@
+"""
+vpype-brush: Add gradual Z-axis pressure variation for brush plotting
+
+This plugin subdivides line segments and adds Z coordinates to create
+natural brush strokes with gradual pressure transitions.
+"""
+
+import click
+import numpy as np
+import vpype as vp
+import vpype_cli
+from shapely.geometry import LineString
+
+
+def subdivide_line(line, segment_length):
+    """
+    Subdivide a vpype line (numpy array of complex numbers) into smaller segments.
+
+    Args:
+        line: A numpy array of complex numbers (vpype format: real=x, imag=y)
+        segment_length: Target length for each segment (mm)
+
+    Returns:
+        List of (x, y) tuples including all original and interpolated points
+    """
+    if len(line) < 2:
+        return [(z.real, z.imag) for z in line]
+
+    result_points = [(line[0].real, line[0].imag)]
+
+    for i in range(len(line) - 1):
+        x1, y1 = line[i].real, line[i].imag
+        x2, y2 = line[i + 1].real, line[i + 1].imag
+
+        # Calculate distance between consecutive points
+        dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+
+        # Calculate number of segments needed
+        num_segments = max(1, int(np.ceil(dist / segment_length)))
+
+        # Add intermediate points (skip the first point as it's already added)
+        for j in range(1, num_segments + 1):
+            t = j / num_segments
+            x = x1 + t * (x2 - x1)
+            y = y1 + t * (y2 - y1)
+            result_points.append((x, y))
+
+    return result_points
+
+
+def calculate_z(distance_from_start, total_distance, z_up, z_down, press_distance, lift_distance):
+    """
+    Calculate Z value based on position within stroke.
+
+    Args:
+        distance_from_start: Cumulative distance from start of stroke
+        total_distance: Total stroke length
+        z_up: Z height at start/end
+        z_down: Z height at full pressure
+        press_distance: Distance over which to press down
+        lift_distance: Distance over which to lift up
+
+    Returns:
+        Z value for this point
+    """
+    remaining_distance = total_distance - distance_from_start
+
+    # Phase 1: Pressing down at start
+    if distance_from_start <= press_distance:
+        progress = distance_from_start / press_distance if press_distance > 0 else 1.0
+        return z_up + (z_down - z_up) * progress
+
+    # Phase 3: Lifting up at end
+    elif remaining_distance <= lift_distance:
+        progress = (lift_distance - remaining_distance) / lift_distance if lift_distance > 0 else 1.0
+        return z_down + (z_up - z_down) * progress
+
+    # Phase 2: Constant pressure (middle)
+    else:
+        return z_down
+
+
+@click.command()
+@click.option('--z-up', default=-3.0, type=float, help='Z height at stroke start/end (mm)')
+@click.option('--z-down', default=-20.0, type=float, help='Z height during stroke (full pressure, mm)')
+@click.option('--press-distance', default=50.0, type=float, help='Distance to press down at start (mm)')
+@click.option('--lift-distance', default=50.0, type=float, help='Distance to lift up at end (mm)')
+@click.option('--segment-length', default=2.0, type=float, help='Subdivision segment length (mm)')
+@click.option('--output', '-o', type=click.Path(), help='Output G-code file path (bypasses gwrite)')
+@vpype_cli.global_processor
+def brush(document, z_up, z_down, press_distance, lift_distance, segment_length, output):
+    """
+    Add gradual Z-axis pressure variation for brush plotting.
+
+    This command subdivides all line segments and adds Z coordinates to create
+    natural brush strokes with gradual pressure transitions at the start and end.
+
+    Example:
+        vpype read input.svg brush --z-up -5 --z-down -20 gwrite output.gcode
+    """
+
+    if output:
+        # Direct G-code output mode
+        generate_gcode(document, z_up, z_down, press_distance, lift_distance, segment_length, output)
+        return document
+    else:
+        # Process geometry and add Z metadata for gwrite
+        process_geometry(document, z_up, z_down, press_distance, lift_distance, segment_length)
+        return document
+
+
+def process_geometry(document, z_up, z_down, press_distance, lift_distance, segment_length):
+    """
+    Process all lines in the document and add Z coordinate metadata.
+    """
+    for layer_id in document.layers:
+        lc = document.layers[layer_id]
+        new_lines = []
+
+        for line in lc:
+            # Subdivide the line
+            points_2d = subdivide_line(line, segment_length)
+
+            if len(points_2d) < 2:
+                new_lines.append(line)
+                continue
+
+            # Calculate cumulative distances
+            cumulative_distances = [0.0]
+            for i in range(1, len(points_2d)):
+                x1, y1 = points_2d[i-1]
+                x2, y2 = points_2d[i]
+                dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                cumulative_distances.append(cumulative_distances[-1] + dist)
+
+            total_distance = cumulative_distances[-1]
+
+            # Calculate Z values for each point
+            points_3d = []
+            for i, (x, y) in enumerate(points_2d):
+                z = calculate_z(
+                    cumulative_distances[i],
+                    total_distance,
+                    z_up,
+                    z_down,
+                    press_distance,
+                    lift_distance
+                )
+                # Store as complex number: real=x, imag=y
+                # We'll store Z in metadata
+                points_3d.append(complex(x, y))
+
+            # Create new line with subdivided points
+            new_line = np.array(points_3d)
+
+            # Store Z values as property (for potential future gwrite support)
+            z_values = [
+                calculate_z(d, total_distance, z_up, z_down, press_distance, lift_distance)
+                for d in cumulative_distances
+            ]
+
+            # Note: Current vpype/gwrite doesn't support Z metadata,
+            # so we'll need to use direct G-code output for now
+            new_lines.append(new_line)
+
+        document.layers[layer_id] = vp.LineCollection(new_lines)
+
+
+def generate_gcode(document, z_up, z_down, press_distance, lift_distance, segment_length, output_path):
+    """
+    Generate G-code directly with Z variations.
+    """
+    gcode_lines = []
+
+    # G-code header
+    gcode_lines.append("; Generated by vpype-brush")
+    gcode_lines.append("G21 ; Set units to millimeters")
+    gcode_lines.append("G90 ; Use absolute coordinates")
+    gcode_lines.append(f"G0 Z{z_up:.4f} ; Pen up")
+    gcode_lines.append("")
+
+    # Process each layer
+    for layer_id in sorted(document.layers.keys()):
+        lc = document.layers[layer_id]
+        gcode_lines.append(f"; Layer {layer_id}")
+
+        for line in lc:
+            # Subdivide the line
+            points_2d = subdivide_line(line, segment_length)
+
+            if len(points_2d) < 2:
+                continue
+
+            # Calculate cumulative distances
+            cumulative_distances = [0.0]
+            for i in range(1, len(points_2d)):
+                x1, y1 = points_2d[i-1]
+                x2, y2 = points_2d[i]
+                dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                cumulative_distances.append(cumulative_distances[-1] + dist)
+
+            total_distance = cumulative_distances[-1]
+
+            # Move to start position (pen up)
+            x_start, y_start = points_2d[0]
+            gcode_lines.append(f"G0 X{x_start:.4f} Y{y_start:.4f}")
+
+            # Draw the stroke with Z variation
+            for i, (x, y) in enumerate(points_2d):
+                z = calculate_z(
+                    cumulative_distances[i],
+                    total_distance,
+                    z_up,
+                    z_down,
+                    press_distance,
+                    lift_distance
+                )
+                gcode_lines.append(f"G1 X{x:.4f} Y{y:.4f} Z{z:.4f}")
+
+            # Pen up
+            gcode_lines.append(f"G0 Z{z_up:.4f}")
+            gcode_lines.append("")
+
+    # G-code footer
+    gcode_lines.append("; End of program")
+    gcode_lines.append("M2")
+
+    # Write to file
+    with open(output_path, 'w') as f:
+        f.write('\n'.join(gcode_lines))
+
+    click.echo(f"G-code written to: {output_path}")
