@@ -61,6 +61,7 @@ vpype read input.svg \
 | `--press-distance` | 50.0 | Distance over which to press down at start in mm |
 | `--lift-distance` | 50.0 | Distance over which to lift up at end in mm |
 | `--segment-length` | 2.0 | Subdivision segment length for smooth curves in mm |
+| `--unit` | mm | Output units (mm, cm, in, etc.) |
 
 ## How It Works
 
@@ -179,7 +180,13 @@ Built for the [vpype](https://github.com/abey79/vpype) ecosystem by [Abey79](htt
 
 ## Changelog
 
-### v0.1.2 (Current - Beta)
+### v0.2.0 (Current - Beta)
+- **FIXED**: Coordinate scaling issue - outputs now respect actual document dimensions
+- **ADDED**: `--unit` option for output unit control (mm, cm, in, etc.)
+- Proper unit conversion from vpype's internal units to target units
+- G-code header now adapts based on output unit (G20/G21)
+
+### v0.1.2 (Beta)
 - Updated documentation with comprehensive README
 - Added MIT License
 - Cleaned up repository structure
