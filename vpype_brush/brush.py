@@ -87,10 +87,11 @@ def calculate_z(distance_from_start, total_distance, z_up, z_down, press_distanc
 @click.option('--press-distance', default=50.0, type=float, help='Distance to press down at start (mm)')
 @click.option('--lift-distance', default=50.0, type=float, help='Distance to lift up at end (mm)')
 @click.option('--segment-length', default=2.0, type=float, help='Subdivision segment length (mm)')
+@click.option('--feed-rate', default=1000.0, type=float, help='Drawing feed rate (mm/min or in/min)')
 @click.option('--unit', default='mm', type=str, help='Output units (mm, cm, in, etc.)')
 @click.option('--output', '-o', type=click.Path(), help='Output G-code file path')
 @vpype_cli.global_processor
-def brush(document, z_up, z_down, press_distance, lift_distance, segment_length, unit, output):
+def brush(document, z_up, z_down, press_distance, lift_distance, segment_length, feed_rate, unit, output):
     """
     Add gradual Z-axis pressure variation for brush plotting.
 
@@ -103,7 +104,7 @@ def brush(document, z_up, z_down, press_distance, lift_distance, segment_length,
 
     if output:
         # Direct G-code output mode
-        generate_gcode(document, z_up, z_down, press_distance, lift_distance, segment_length, unit, output)
+        generate_gcode(document, z_up, z_down, press_distance, lift_distance, segment_length, feed_rate, unit, output)
         return document
     else:
         # Process geometry (subdivide lines with Z variations)
@@ -162,7 +163,7 @@ def process_geometry(document, z_up, z_down, press_distance, lift_distance, segm
         document.layers[layer_id] = vp.LineCollection(new_lines)
 
 
-def generate_gcode(document, z_up, z_down, press_distance, lift_distance, segment_length, unit, output_path):
+def generate_gcode(document, z_up, z_down, press_distance, lift_distance, segment_length, feed_rate, unit, output_path):
     """
     Generate G-code directly with Z variations.
     Properly scales coordinates from vpype's internal units to the target unit.
@@ -187,6 +188,7 @@ def generate_gcode(document, z_up, z_down, press_distance, lift_distance, segmen
 
     gcode_lines.append("G90 ; Use absolute coordinates")
     gcode_lines.append(f"G0 Z{z_up:.4f} ; Pen up")
+    gcode_lines.append(f"F{feed_rate:.1f} ; Set feed rate")
     gcode_lines.append("")
 
     # Process each layer
