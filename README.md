@@ -20,7 +20,7 @@ A [vpype](https://github.com/abey79/vpype) plugin that adds gradual Z-axis press
 ### From Source (Current)
 
 ```bash
-git clone https://github.com/yourusername/vpype-brush.git
+git clone https://github.com/TarGz/vpype-brush.git
 cd vpype-brush
 pip install -e .
 ```
@@ -76,15 +76,18 @@ The plugin processes your vector artwork in three steps:
 ### Pressure Curve Example
 
 ```
-Z Height
-  │
-  │  ╱────────────╲     ← Stroke
-  │ ╱              ╲
-  │╱                ╲
-  └─────────────────────→ Distance
-    ↑      ↑       ↑
-  Press  Constant  Lift
-  Phase   Phase   Phase
+        Travel   Downward   Constant   Upward   Travel
+         (up)     Phase      height    Phase     (up)
+           |        |           |         |         |
+           v        v           v         v         v
+
+Z-up   -------------+                             +-----
+                    \                            /
+                     \                          /
+                      \                        /
+                       \                      /
+                        \                    /
+Z-down                   \__________________/
 ```
 
 ## Usage Tips
@@ -117,15 +120,6 @@ vpype read input.svg \
   brush --z-up -5 --z-down -20 \
   -o output.gcode
 ```
-
-## Advantages Over Post-Processing
-
-- Works with single straight lines (subdivides automatically)
-- Reaches full depth properly on all strokes
-- Distance-based (not time-based) for consistent behavior across different speeds
-- No fragile regex parsing of G-code
-- Integrates directly into vpype pipeline
-- Preserves stroke order and layer information
 
 ## Requirements
 
@@ -162,7 +156,7 @@ vpype read sketch.svg brush --z-up -3 --z-down -12 --press-distance 20 --lift-di
 - G-code output only (no SVG passthrough yet)
 - Assumes Z-axis control is available on your machine
 
-Please report issues at: [GitHub Issues](https://github.com/yourusername/vpype-brush/issues)
+Please report issues at: [GitHub Issues](https://github.com/TarGz/vpype-brush/issues)
 
 ## Contributing
 
@@ -179,9 +173,9 @@ MIT License - See LICENSE file for details
 
 ## Credits
 
-Created by jterraz
+Created by targz
 
-Built for the [vpype](https://github.com/abey79/vpype) ecosystem by [Antoine Beyeler](https://github.com/abey79)
+Built for the [vpype](https://github.com/abey79/vpype) ecosystem by [Abey79](https://github.com/abey79)
 
 ## Changelog
 
