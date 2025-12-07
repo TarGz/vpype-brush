@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vpype-brush"
-version = "0.3.0"
+version = "0.3.1"
 description = "A vpype plugin that adds gradual Z-axis pressure variation to brush strokes"
 readme = "README.md"
 requires-python = ">=3.9"

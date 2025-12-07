@@ -441,17 +441,18 @@ def subdivide_line(line, segment_length):
 
 def merge_connected_lines(lines, tolerance=0.5):
     """
-    Merge ALL connected lines regardless of their order in the document.
+    Merge connected lines on the SAME ROW (similar Y coordinate).
 
     This fixes the pen-lift bug where SVGs with per-segment colors create
     thousands of tiny separate paths that are actually connected.
 
-    Uses iterative merging: keeps trying to extend chains until no more
-    connections can be found.
+    Only merges lines where:
+    - X gap is within tolerance (horizontal connection)
+    - Y difference is very small (same row, max 1mm)
 
     Args:
         lines: List of numpy arrays of complex numbers (vpype line format)
-        tolerance: Maximum distance (in vpype units) to consider points connected
+        tolerance: Maximum X distance (in vpype units) to consider points connected
 
     Returns:
         List of merged lines (numpy arrays of complex)
@@ -464,6 +465,16 @@ def merge_connected_lines(lines, tolerance=0.5):
 
     if not remaining:
         return []
+
+    # Y tolerance: max 3mm difference to be considered same row
+    # 3mm = 3 * 96/25.4 ≈ 11.34 vpype units
+    y_tolerance = 11.34
+
+    def points_connect(p1, p2):
+        """Check if two points connect (same row, X within tolerance)."""
+        x_diff = abs(p1.real - p2.real)
+        y_diff = abs(p1.imag - p2.imag)
+        return x_diff < tolerance and y_diff < y_tolerance
 
     merged = []
 
@@ -485,7 +496,7 @@ def merge_connected_lines(lines, tolerance=0.5):
                 line_end = line[-1]
 
                 # Check if this line connects to end of chain (line_start -> chain_end)
-                if abs(chain_end - line_start) < tolerance:
+                if points_connect(chain_end, line_start):
                     # Append line to end of chain (skip duplicate point)
                     current_chain.extend(line[1:])
                     remaining.pop(i)
@@ -493,7 +504,7 @@ def merge_connected_lines(lines, tolerance=0.5):
                     continue
 
                 # Check if this line connects to start of chain (line_end -> chain_start)
-                elif abs(line_end - chain_start) < tolerance:
+                elif points_connect(line_end, chain_start):
                     # Prepend line to start of chain (skip duplicate point)
                     current_chain = line[:-1] + current_chain
                     remaining.pop(i)
@@ -501,7 +512,7 @@ def merge_connected_lines(lines, tolerance=0.5):
                     continue
 
                 # Check if reversed line connects to end (line_end -> chain_end)
-                elif abs(chain_end - line_end) < tolerance:
+                elif points_connect(chain_end, line_end):
                     # Append reversed line to end
                     current_chain.extend(reversed(line[:-1]))
                     remaining.pop(i)
@@ -509,7 +520,7 @@ def merge_connected_lines(lines, tolerance=0.5):
                     continue
 
                 # Check if reversed line connects to start (line_start -> chain_start)
-                elif abs(line_start - chain_start) < tolerance:
+                elif points_connect(line_start, chain_start):
                     # Prepend reversed line to start
                     current_chain = list(reversed(line[1:])) + current_chain
                     remaining.pop(i)
@@ -583,7 +594,7 @@ def calculate_z(distance_from_start, total_distance, z_up, z_down, press_distanc
 @click.option('--segment-length', default=2.0, type=float, help='Subdivision segment length (mm)')
 @click.option('--feed-rate', default=1000.0, type=float, help='Drawing feed rate (mm/min or in/min)')
 @click.option('--unit', default='mm', type=str, help='Output units (mm, cm, in, etc.)')
-@click.option('--merge-tolerance', default=0.5, type=float,
+@click.option('--merge-tolerance', default=1.0, type=float,
               help='Distance tolerance (mm) for merging connected lines. Set to 0 to disable merging.')
 @click.option('--output', '-o', type=click.Path(), help='Output G-code file path')
 @vpype_cli.global_processor
