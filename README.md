@@ -10,6 +10,7 @@ A [vpype](https://github.com/abey79/vpype) plugin that adds gradual Z-axis press
 ## Features
 
 - **Distance-based pressure control**: Smoothly press down at stroke start and lift at stroke end
+- **Color-based pressure control**: Map line colors to Z pressure (black=full, white=light, grays=progressive)
 - **Automatic line subdivision**: Converts long straight lines into smooth pressure curves
 - **Direct G-code output**: Generates 3D toolpaths (X, Y, Z) directly from vector artwork
 - **Customizable parameters**: Full control over Z heights, press/lift distances, and segment length
@@ -58,6 +59,7 @@ vpype read input.svg \
 |-----------|---------|-------------|
 | `--z-up` | -3.0 | Z height when pen is up (start/end of stroke) in mm |
 | `--z-down` | -20.0 | Z height at full brush pressure (middle of stroke) in mm |
+| `--z-from-color` | false | Set Z from line color: black=z-down, white=z-up, grays=progressive |
 | `--press-distance` | 50.0 | Distance over which to press down at start in mm |
 | `--lift-distance` | 50.0 | Distance over which to lift up at end in mm |
 | `--segment-length` | 2.0 | Subdivision segment length for smooth curves in mm |
@@ -155,6 +157,12 @@ vpype read artwork.svg brush --z-up -5 --z-down -25 --press-distance 80 -o heavy
 vpype read sketch.svg brush --z-up -3 --z-down -12 --press-distance 20 --lift-distance 20 -o quick.gcode
 ```
 
+### Color-Based Pressure (Grayscale Images)
+Use `--z-from-color` to derive pressure from line colors. Black lines get full pressure, white lines get light pressure:
+```bash
+vpype read grayscale-artwork.svg brush --z-from-color --z-up -3 --z-down -20 -o shaded.gcode
+```
+
 ## Known Issues
 
 - Beta software: May contain bugs or unexpected behavior
@@ -184,7 +192,11 @@ Built for the [vpype](https://github.com/abey79/vpype) ecosystem by [Abey79](htt
 
 ## Changelog
 
-### v0.2.2 (Current - Beta)
+### v0.2.3 (Current - Beta)
+- **ADDED**: `--z-from-color` option to derive Z pressure from line colors (black=full pressure, white=light, grays=progressive)
+- New `color_to_grayscale()` function using standard luminance formula
+
+### v0.2.2 (Beta)
 - **FIXED**: Short stroke behavior - press/lift distances now scale proportionally for strokes shorter than press+lift distance
 - Improved fluid 3D movement with simultaneous XYZ motion
 
