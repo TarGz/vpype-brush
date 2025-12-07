@@ -9,11 +9,15 @@ A [vpype](https://github.com/abey79/vpype) plugin that adds gradual Z-axis press
 
 ## Features
 
-- **Distance-based pressure control**: Smoothly press down at stroke start and lift at stroke end
-- **Color-based pressure control**: Map line colors to Z pressure (black=full, white=light, grays=progressive)
+- **Three Z pressure modes**:
+  - **Position-based**: Classic brush stroke with press-down at start, lift at end
+  - **Layer color**: Uniform Z pressure per layer based on layer color
+  - **SVG spatial**: Varying pressure within strokes based on original SVG colors at each point
+- **Gaussian smoothing**: Smooth Z transitions for natural brush strokes
+- **Automatic line merging**: Reduces pen lifts by merging connected path segments
 - **Automatic line subdivision**: Converts long straight lines into smooth pressure curves
 - **Direct G-code output**: Generates 3D toolpaths (X, Y, Z) directly from vector artwork
-- **Customizable parameters**: Full control over Z heights, press/lift distances, and segment length
+- **Customizable parameters**: Full control over Z heights, smoothing, and segment length
 - **Pipeline integration**: Works seamlessly within vpype's processing pipeline
 
 ## Installation
@@ -57,27 +61,27 @@ vpype read input.svg \
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--z-up` | -3.0 | Z height when pen is up (start/end of stroke) in mm |
-| `--z-down` | -20.0 | Z height at full brush pressure (middle of stroke) in mm |
-| `--z-from-color` | false | Set Z from line color: black=z-down, white=z-up, grays=progressive |
-| `--press-distance` | 50.0 | Distance over which to press down at start in mm |
-| `--lift-distance` | 50.0 | Distance over which to lift up at end in mm |
+| `--z-up` | -3.0 | Z height for light pressure (white colors) in mm |
+| `--z-down` | -20.0 | Z height for full pressure (black colors) in mm |
+| `--z-from-color` | false | Set Z from layer color (uniform per layer) |
+| `--z-from-svg` | none | Path to SVG for spatial color lookup at each point |
+| `--z-smooth-distance` | 5.0 | Gaussian smoothing radius for Z transitions in mm |
+| `--press-distance` | 50.0 | Distance to press down at start (position-based mode) in mm |
+| `--lift-distance` | 50.0 | Distance to lift up at end (position-based mode) in mm |
+| `--merge-tolerance` | 1.0 | Distance tolerance for merging connected lines in mm (0 to disable) |
 | `--segment-length` | 2.0 | Subdivision segment length for smooth curves in mm |
 | `--feed-rate` | 1000.0 | Drawing feed rate in mm/min (or in/min if using inches) |
 | `--unit` | mm | Output units (mm, cm, in, etc.) |
 
-## How It Works
+## Z Pressure Modes
 
-The plugin processes your vector artwork in three steps:
+### 1. Position-based Mode (default)
 
-1. **Subdivision**: All lines are subdivided into small segments (default 2mm) for smooth Z transitions
-2. **Z-axis Calculation**: Each point gets a Z coordinate based on its position in the stroke:
-   - **Press phase**: First `press-distance` mm - gradually press from `z-up` → `z-down`
-   - **Constant pressure**: Middle section - maintain `z-down` for consistent brush contact
-   - **Lift phase**: Last `lift-distance` mm - gradually lift from `z-down` → `z-up`
-3. **G-code Generation**: Outputs standard G-code with X, Y, and Z coordinates
+Classic brush stroke behavior. Z starts at `z-up`, presses down to `z-down` over the `press-distance`, stays at `z-down` during the stroke, then lifts back to `z-up` over the `lift-distance`.
 
-### Pressure Curve Example
+```bash
+vpype read input.svg brush --z-up -3 --z-down -20 --press-distance 50 --lift-distance 50 -o output.gcode
+```
 
 ```
         Travel   Downward   Constant   Upward   Travel
@@ -93,6 +97,37 @@ Z-up   -------------+                             +-----
                         \                    /
 Z-down                   \__________________/
 ```
+
+### 2. Layer Color Mode
+
+Uses the color assigned to each vpype layer to determine Z pressure. Black layers get full pressure (`z-down`), white layers get light pressure (`z-up`), gray layers get intermediate values. Still uses press/lift envelope at stroke boundaries.
+
+```bash
+vpype read grayscale.svg brush --z-from-color --z-up -3 --z-down -20 -o output.gcode
+```
+
+### 3. SVG Spatial Mode
+
+Looks up the color from the original SVG file at each point along the stroke. This allows varying pressure *within* a single stroke based on the color at each position. Uses Gaussian smoothing for smooth transitions. No press/lift envelope - the SVG encodes the full pressure curve.
+
+```bash
+vpype read artwork.svg brush --z-from-svg artwork.svg --z-up -3 --z-down -20 --z-smooth-distance 5 -o output.gcode
+```
+
+This mode is ideal for:
+- Grayscale artwork where color represents pressure/shading
+- Images with gradients converted to vector paths
+- Pre-processed SVGs with color-encoded pressure information
+
+## How It Works
+
+The plugin processes your vector artwork in these steps:
+
+1. **Line Merging**: Connected path segments are merged to reduce pen lifts (configurable via `--merge-tolerance`)
+2. **Subdivision**: All lines are subdivided into small segments (default 2mm) for smooth Z transitions
+3. **Z-axis Calculation**: Each point gets a Z coordinate based on the selected mode
+4. **Smoothing**: For SVG spatial mode, Gaussian smoothing creates natural pressure transitions
+5. **G-code Generation**: Outputs standard G-code with simultaneous X, Y, and Z coordinates
 
 ## Usage Tips
 
@@ -157,10 +192,22 @@ vpype read artwork.svg brush --z-up -5 --z-down -25 --press-distance 80 -o heavy
 vpype read sketch.svg brush --z-up -3 --z-down -12 --press-distance 20 --lift-distance 20 -o quick.gcode
 ```
 
-### Color-Based Pressure (Grayscale Images)
-Use `--z-from-color` to derive pressure from line colors. Black lines get full pressure, white lines get light pressure:
+### Layer Color Pressure
+Use `--z-from-color` to derive pressure from layer colors. Black layers get full pressure, white layers get light pressure:
 ```bash
 vpype read grayscale-artwork.svg brush --z-from-color --z-up -3 --z-down -20 -o shaded.gcode
+```
+
+### SVG Spatial Pressure (Varying Within Strokes)
+Use `--z-from-svg` for pressure that varies at each point based on the original SVG colors:
+```bash
+vpype read gradient-artwork.svg brush --z-from-svg gradient-artwork.svg --z-up -3 --z-down -20 --z-smooth-distance 5 -o variable.gcode
+```
+
+### Reduce Pen Lifts
+Use `--merge-tolerance` to merge connected path segments (reduces pen up/down movements):
+```bash
+vpype read segmented.svg brush --merge-tolerance 1.0 --z-from-svg segmented.svg -o merged.gcode
 ```
 
 ## Known Issues
@@ -192,7 +239,15 @@ Built for the [vpype](https://github.com/abey79/vpype) ecosystem by [Abey79](htt
 
 ## Changelog
 
-### v0.2.3 (Current - Beta)
+### v0.3.1 (Current - Beta)
+- **ADDED**: `--z-from-svg` option for spatial color lookup - Z pressure varies within strokes based on original SVG colors
+- **ADDED**: `--z-smooth-distance` option for Gaussian smoothing of Z transitions
+- **ADDED**: `--merge-tolerance` option to merge connected path segments and reduce pen lifts
+- **IMPROVED**: Three distinct Z pressure modes: position-based, layer color, and SVG spatial
+- **IMPROVED**: Linear Z transitions instead of exponential smoothing
+- **FIXED**: Removed press/lift envelope when using SVG spatial mode (SVG encodes full pressure curve)
+
+### v0.2.3 (Beta)
 - **ADDED**: `--z-from-color` option to derive Z pressure from line colors (black=full pressure, white=light, grays=progressive)
 - New `color_to_grayscale()` function using standard luminance formula
 

@@ -791,59 +791,68 @@ def generate_gcode(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_di
             y_start_scaled = y_start / unit_scale
             gcode_lines.append(f"G0 X{x_start_scaled:.4f} Y{y_start_scaled:.4f}")
 
-            # Reset current_z at start of new stroke
-            current_z = z_up
+            # Pre-compute all Z values for SVG spatial mode, then smooth
+            if svg_color_index:
+                # First pass: get raw Z values from color lookup
+                raw_z_values = []
+                scaled_points = []
+                for (x, y) in points_2d:
+                    x_scaled = x / unit_scale
+                    y_scaled = y / unit_scale
+                    scaled_points.append((x_scaled, y_scaled))
+                    grayscale = svg_color_index.find_grayscale_at(
+                        x_scaled + svg_offset_x, y_scaled + svg_offset_y)
+                    target_z = z_down + grayscale * (z_up - z_down)
+                    raw_z_values.append(target_z)
 
-            # Draw the stroke with Z variation (simultaneous XYZ movement)
+                # Second pass: apply Gaussian-weighted smoothing
+                if z_smooth_distance > 0 and len(raw_z_values) > 1:
+                    smoothed_z_values = []
+                    for i in range(len(raw_z_values)):
+                        # Calculate weighted average of nearby Z values
+                        total_weight = 0.0
+                        weighted_sum = 0.0
+                        xi, yi = scaled_points[i]
+
+                        for j in range(len(raw_z_values)):
+                            xj, yj = scaled_points[j]
+                            dist = np.sqrt((xi - xj)**2 + (yi - yj)**2)
+                            # Gaussian weight based on distance
+                            weight = np.exp(-(dist ** 2) / (2 * (z_smooth_distance / 2) ** 2))
+                            weighted_sum += weight * raw_z_values[j]
+                            total_weight += weight
+
+                        smoothed_z = weighted_sum / total_weight if total_weight > 0 else raw_z_values[i]
+                        smoothed_z_values.append(smoothed_z)
+                else:
+                    smoothed_z_values = raw_z_values
+
+                # Output smoothed stroke
+                for i, (x, y) in enumerate(points_2d):
+                    x_scaled, y_scaled = scaled_points[i]
+                    z = smoothed_z_values[i]
+                    gcode_lines.append(f"G1 X{x_scaled:.4f} Y{y_scaled:.4f} Z{z:.4f}")
+
+                # Pen up
+                gcode_lines.append(f"G0 Z{z_up:.4f}")
+                gcode_lines.append("")
+                continue
+
+            # Non-SVG mode: original point-by-point processing
             for i, (x, y) in enumerate(points_2d):
                 # Convert from vpype internal units to target unit
                 x_scaled = x / unit_scale
                 y_scaled = y / unit_scale
 
-                if svg_color_index:
-                    # Use spatial color lookup for Z (apply SVG offset)
-                    grayscale = svg_color_index.find_grayscale_at(
-                        x_scaled + svg_offset_x, y_scaled + svg_offset_y)
-                    # Map: black (0.0) -> z_down, white (1.0) -> z_up
-                    target_z = z_down + grayscale * (z_up - z_down)
-
-                    # Apply press/lift envelope
-                    envelope_z = calculate_z(
-                        cumulative_distances[i],
-                        total_distance,
-                        z_up,
-                        z_down,  # Use full range for envelope
-                        press_distance,
-                        lift_distance
-                    )
-                    # Blend: use envelope to limit how far we can go
-                    # At start/end (envelope near z_up), limit Z toward z_up
-                    # In middle (envelope at z_down), allow full color-based Z
-                    envelope_factor = (envelope_z - z_up) / (z_down - z_up) if z_down != z_up else 1.0
-                    target_z = z_up + envelope_factor * (target_z - z_up)
-
-                    # Smooth Z transition using exponential smoothing
-                    if z_smooth_distance > 0 and i > 0:
-                        x_prev, y_prev = points_2d[i - 1]
-                        travel_dist = np.sqrt((x - x_prev)**2 + (y - y_prev)**2) / unit_scale
-                        # Exponential smoothing: move fraction of distance to target
-                        # Factor of 0.0 = no change, 1.0 = instant change
-                        smoothing_factor = min(1.0, travel_dist / z_smooth_distance)
-                        z = current_z + smoothing_factor * (target_z - current_z)
-                    else:
-                        z = target_z
-
-                    current_z = z
-                else:
-                    # Original behavior: calculate Z from position in stroke
-                    z = calculate_z(
-                        cumulative_distances[i],
-                        total_distance,
-                        z_up,
-                        effective_z_down,
-                        press_distance,
-                        lift_distance
-                    )
+                # Original behavior: calculate Z from position in stroke
+                z = calculate_z(
+                    cumulative_distances[i],
+                    total_distance,
+                    z_up,
+                    effective_z_down,
+                    press_distance,
+                    lift_distance
+                )
 
                 # Simultaneous XYZ move for fluid brush strokes
                 gcode_lines.append(f"G1 X{x_scaled:.4f} Y{y_scaled:.4f} Z{z:.4f}")
