@@ -242,7 +242,11 @@ Built for the [vpype](https://github.com/abey79/vpype) ecosystem by [Abey79](htt
 
 ## Changelog
 
-### v0.4.0 (Current - Beta)
+### v0.4.1 (Current - Beta)
+- **ADDED**: Progress indicators for SVG indexing and stroke processing
+- **IMPROVED**: Better feedback during long processing operations
+
+### v0.4.0 (Beta)
 - **ADDED**: `--z-travel` option for separate travel height between strokes (defaults to z-up for backward compatibility)
 
 ### v0.3.1 (Beta)

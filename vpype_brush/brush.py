@@ -330,47 +330,60 @@ def build_svg_color_index(svg_file):
     spatial_index = SpatialColorIndex(cell_size=5.0)
     default_stroke = root.get('stroke', 'black')
 
-    def process_element(element, inherited_stroke=None):
+    # First pass: collect all drawable elements with their inherited stroke
+    drawable_elements = []
+
+    def collect_elements(element, inherited_stroke=None):
         current_stroke = get_svg_element_stroke(element, inherited_stroke)
         tag_local = element.tag.replace(f'{{{SVG_NS}}}', '')
 
-        if tag_local == 'path':
-            d_attr = element.get('d', '')
-            points = parse_svg_path_d(d_attr)
-
-            if points and current_stroke:
-                points = [(x * scale_x, y * scale_y) for x, y in points]
-                rgb = parse_svg_color(current_stroke or default_stroke)
-                grayscale = rgb_to_grayscale_value(rgb)
-
-                for i in range(len(points) - 1):
-                    spatial_index.add_segment(points[i], points[i + 1], grayscale)
-
-        elif tag_local == 'line':
-            x1, y1 = float(element.get('x1', 0)), float(element.get('y1', 0))
-            x2, y2 = float(element.get('x2', 0)), float(element.get('y2', 0))
-            points = [(x1 * scale_x, y1 * scale_y), (x2 * scale_x, y2 * scale_y)]
-            rgb = parse_svg_color(current_stroke or default_stroke)
-            grayscale = rgb_to_grayscale_value(rgb)
-            spatial_index.add_segment(points[0], points[1], grayscale)
-
-        elif tag_local in ['polyline', 'polygon']:
-            points_attr = element.get('points', '')
-            coords = re.findall(r'[-+]?(?:\d+\.?\d*|\.\d+)', points_attr)
-            points = [(float(coords[i]) * scale_x, float(coords[i + 1]) * scale_y)
-                      for i in range(0, len(coords) - 1, 2)]
-            if points:
-                rgb = parse_svg_color(current_stroke or default_stroke)
-                grayscale = rgb_to_grayscale_value(rgb)
-                for i in range(len(points) - 1):
-                    spatial_index.add_segment(points[i], points[i + 1], grayscale)
-                if tag_local == 'polygon' and len(points) > 2:
-                    spatial_index.add_segment(points[-1], points[0], grayscale)
+        if tag_local in ['path', 'line', 'polyline', 'polygon']:
+            drawable_elements.append((element, current_stroke))
 
         for child in element:
-            process_element(child, current_stroke)
+            collect_elements(child, current_stroke)
 
-    process_element(root, default_stroke)
+    collect_elements(root, default_stroke)
+
+    # Second pass: process elements with progress bar
+    with click.progressbar(drawable_elements, label='  Indexing SVG elements',
+                           show_pos=True, show_percent=True) as bar:
+        for element, current_stroke in bar:
+            tag_local = element.tag.replace(f'{{{SVG_NS}}}', '')
+
+            if tag_local == 'path':
+                d_attr = element.get('d', '')
+                points = parse_svg_path_d(d_attr)
+
+                if points and current_stroke:
+                    points = [(x * scale_x, y * scale_y) for x, y in points]
+                    rgb = parse_svg_color(current_stroke or default_stroke)
+                    grayscale = rgb_to_grayscale_value(rgb)
+
+                    for i in range(len(points) - 1):
+                        spatial_index.add_segment(points[i], points[i + 1], grayscale)
+
+            elif tag_local == 'line':
+                x1, y1 = float(element.get('x1', 0)), float(element.get('y1', 0))
+                x2, y2 = float(element.get('x2', 0)), float(element.get('y2', 0))
+                points = [(x1 * scale_x, y1 * scale_y), (x2 * scale_x, y2 * scale_y)]
+                rgb = parse_svg_color(current_stroke or default_stroke)
+                grayscale = rgb_to_grayscale_value(rgb)
+                spatial_index.add_segment(points[0], points[1], grayscale)
+
+            elif tag_local in ['polyline', 'polygon']:
+                points_attr = element.get('points', '')
+                coords = re.findall(r'[-+]?(?:\d+\.?\d*|\.\d+)', points_attr)
+                points = [(float(coords[i]) * scale_x, float(coords[i + 1]) * scale_y)
+                          for i in range(0, len(coords) - 1, 2)]
+                if points:
+                    rgb = parse_svg_color(current_stroke or default_stroke)
+                    grayscale = rgb_to_grayscale_value(rgb)
+                    for i in range(len(points) - 1):
+                        spatial_index.add_segment(points[i], points[i + 1], grayscale)
+                    if tag_local == 'polygon' and len(points) > 2:
+                        spatial_index.add_segment(points[-1], points[0], grayscale)
+
     return spatial_index
 
 
@@ -767,108 +780,111 @@ def generate_gcode(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_di
             click.echo(f"  Layer {layer_id}: Merged {original_count} lines → {merged_count} strokes")
             gcode_lines.append(f"; Merged {original_count} lines into {merged_count} strokes")
 
-        for line_idx, line in enumerate(lines_to_process):
-            # Subdivide the line
-            points_2d = subdivide_line(line, segment_length)
+        # Process strokes with progress bar
+        with click.progressbar(lines_to_process, label=f'  Processing layer {layer_id}',
+                               show_pos=True, show_percent=True) as bar:
+            for line in bar:
+                # Subdivide the line
+                points_2d = subdivide_line(line, segment_length)
 
-            if len(points_2d) < 2:
-                continue
+                if len(points_2d) < 2:
+                    continue
 
-            # Determine effective z_down based on color if z_from_color is enabled
-            effective_z_down = z_down
-            if z_from_color and not z_from_svg:
-                # Get color for this line (layer-level color)
-                color = lc.property("vp_color")
-                grayscale = color_to_grayscale(color)
-                # Map: black (0.0) -> z_down, white (1.0) -> z_up
-                effective_z_down = z_down + grayscale * (z_up - z_down)
+                # Determine effective z_down based on color if z_from_color is enabled
+                effective_z_down = z_down
+                if z_from_color and not z_from_svg:
+                    # Get color for this line (layer-level color)
+                    color = lc.property("vp_color")
+                    grayscale = color_to_grayscale(color)
+                    # Map: black (0.0) -> z_down, white (1.0) -> z_up
+                    effective_z_down = z_down + grayscale * (z_up - z_down)
 
-            # Calculate cumulative distances
-            cumulative_distances = [0.0]
-            for i in range(1, len(points_2d)):
-                x1, y1 = points_2d[i-1]
-                x2, y2 = points_2d[i]
-                dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-                cumulative_distances.append(cumulative_distances[-1] + dist)
+                # Calculate cumulative distances
+                cumulative_distances = [0.0]
+                for i in range(1, len(points_2d)):
+                    x1, y1 = points_2d[i-1]
+                    x2, y2 = points_2d[i]
+                    dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                    cumulative_distances.append(cumulative_distances[-1] + dist)
 
-            total_distance = cumulative_distances[-1]
+                total_distance = cumulative_distances[-1]
 
-            # Move to start position (pen up)
-            x_start, y_start = points_2d[0]
-            # Convert from vpype internal units to target unit
-            x_start_scaled = x_start / unit_scale
-            y_start_scaled = y_start / unit_scale
-            gcode_lines.append(f"G0 X{x_start_scaled:.4f} Y{y_start_scaled:.4f}")
+                # Move to start position (pen up)
+                x_start, y_start = points_2d[0]
+                # Convert from vpype internal units to target unit
+                x_start_scaled = x_start / unit_scale
+                y_start_scaled = y_start / unit_scale
+                gcode_lines.append(f"G0 X{x_start_scaled:.4f} Y{y_start_scaled:.4f}")
 
-            # Pre-compute all Z values for SVG spatial mode, then smooth
-            if svg_color_index:
-                # First pass: get raw Z values from color lookup
-                raw_z_values = []
-                scaled_points = []
-                for (x, y) in points_2d:
+                # Pre-compute all Z values for SVG spatial mode, then smooth
+                if svg_color_index:
+                    # First pass: get raw Z values from color lookup
+                    raw_z_values = []
+                    scaled_points = []
+                    for (x, y) in points_2d:
+                        x_scaled = x / unit_scale
+                        y_scaled = y / unit_scale
+                        scaled_points.append((x_scaled, y_scaled))
+                        grayscale = svg_color_index.find_grayscale_at(
+                            x_scaled + svg_offset_x, y_scaled + svg_offset_y)
+                        target_z = z_down + grayscale * (z_up - z_down)
+                        raw_z_values.append(target_z)
+
+                    # Second pass: apply Gaussian-weighted smoothing
+                    if z_smooth_distance > 0 and len(raw_z_values) > 1:
+                        smoothed_z_values = []
+                        for i in range(len(raw_z_values)):
+                            # Calculate weighted average of nearby Z values
+                            total_weight = 0.0
+                            weighted_sum = 0.0
+                            xi, yi = scaled_points[i]
+
+                            for j in range(len(raw_z_values)):
+                                xj, yj = scaled_points[j]
+                                dist = np.sqrt((xi - xj)**2 + (yi - yj)**2)
+                                # Gaussian weight based on distance
+                                weight = np.exp(-(dist ** 2) / (2 * (z_smooth_distance / 2) ** 2))
+                                weighted_sum += weight * raw_z_values[j]
+                                total_weight += weight
+
+                            smoothed_z = weighted_sum / total_weight if total_weight > 0 else raw_z_values[i]
+                            smoothed_z_values.append(smoothed_z)
+                    else:
+                        smoothed_z_values = raw_z_values
+
+                    # Output smoothed stroke
+                    for i, (x, y) in enumerate(points_2d):
+                        x_scaled, y_scaled = scaled_points[i]
+                        z = smoothed_z_values[i]
+                        gcode_lines.append(f"G1 X{x_scaled:.4f} Y{y_scaled:.4f} Z{z:.4f}")
+
+                    # Pen up (travel height)
+                    gcode_lines.append(f"G0 Z{z_travel:.4f}")
+                    gcode_lines.append("")
+                    continue
+
+                # Non-SVG mode: original point-by-point processing
+                for i, (x, y) in enumerate(points_2d):
+                    # Convert from vpype internal units to target unit
                     x_scaled = x / unit_scale
                     y_scaled = y / unit_scale
-                    scaled_points.append((x_scaled, y_scaled))
-                    grayscale = svg_color_index.find_grayscale_at(
-                        x_scaled + svg_offset_x, y_scaled + svg_offset_y)
-                    target_z = z_down + grayscale * (z_up - z_down)
-                    raw_z_values.append(target_z)
 
-                # Second pass: apply Gaussian-weighted smoothing
-                if z_smooth_distance > 0 and len(raw_z_values) > 1:
-                    smoothed_z_values = []
-                    for i in range(len(raw_z_values)):
-                        # Calculate weighted average of nearby Z values
-                        total_weight = 0.0
-                        weighted_sum = 0.0
-                        xi, yi = scaled_points[i]
+                    # Original behavior: calculate Z from position in stroke
+                    z = calculate_z(
+                        cumulative_distances[i],
+                        total_distance,
+                        z_up,
+                        effective_z_down,
+                        press_distance,
+                        lift_distance
+                    )
 
-                        for j in range(len(raw_z_values)):
-                            xj, yj = scaled_points[j]
-                            dist = np.sqrt((xi - xj)**2 + (yi - yj)**2)
-                            # Gaussian weight based on distance
-                            weight = np.exp(-(dist ** 2) / (2 * (z_smooth_distance / 2) ** 2))
-                            weighted_sum += weight * raw_z_values[j]
-                            total_weight += weight
-
-                        smoothed_z = weighted_sum / total_weight if total_weight > 0 else raw_z_values[i]
-                        smoothed_z_values.append(smoothed_z)
-                else:
-                    smoothed_z_values = raw_z_values
-
-                # Output smoothed stroke
-                for i, (x, y) in enumerate(points_2d):
-                    x_scaled, y_scaled = scaled_points[i]
-                    z = smoothed_z_values[i]
+                    # Simultaneous XYZ move for fluid brush strokes
                     gcode_lines.append(f"G1 X{x_scaled:.4f} Y{y_scaled:.4f} Z{z:.4f}")
 
                 # Pen up (travel height)
                 gcode_lines.append(f"G0 Z{z_travel:.4f}")
                 gcode_lines.append("")
-                continue
-
-            # Non-SVG mode: original point-by-point processing
-            for i, (x, y) in enumerate(points_2d):
-                # Convert from vpype internal units to target unit
-                x_scaled = x / unit_scale
-                y_scaled = y / unit_scale
-
-                # Original behavior: calculate Z from position in stroke
-                z = calculate_z(
-                    cumulative_distances[i],
-                    total_distance,
-                    z_up,
-                    effective_z_down,
-                    press_distance,
-                    lift_distance
-                )
-
-                # Simultaneous XYZ move for fluid brush strokes
-                gcode_lines.append(f"G1 X{x_scaled:.4f} Y{y_scaled:.4f} Z{z:.4f}")
-
-            # Pen up (travel height)
-            gcode_lines.append(f"G0 Z{z_travel:.4f}")
-            gcode_lines.append("")
 
     # G-code footer
     gcode_lines.append("; End of program")
