@@ -500,18 +500,17 @@ def subdivide_line(line, segment_length):
 
 def merge_connected_lines(lines, tolerance=0.5):
     """
-    Merge connected lines on the SAME ROW (similar Y coordinate).
+    Merge connected lines based on endpoint proximity.
 
     This fixes the pen-lift bug where SVGs with per-segment colors create
     thousands of tiny separate paths that are actually connected.
 
-    Only merges lines where:
-    - X gap is within tolerance (horizontal connection)
-    - Y difference is very small (same row, max 1mm)
+    Uses Euclidean distance to determine if endpoints are close enough to merge,
+    which works correctly for any pattern (spirals, curves, hatching, etc.).
 
     Args:
         lines: List of numpy arrays of complex numbers (vpype line format)
-        tolerance: Maximum X distance (in vpype units) to consider points connected
+        tolerance: Maximum Euclidean distance (in vpype units) to consider points connected
 
     Returns:
         List of merged lines (numpy arrays of complex)
@@ -525,15 +524,11 @@ def merge_connected_lines(lines, tolerance=0.5):
     if not remaining:
         return []
 
-    # Y tolerance: max 3mm difference to be considered same row
-    # 3mm = 3 * 96/25.4 ≈ 11.34 vpype units
-    y_tolerance = 11.34
-
     def points_connect(p1, p2):
-        """Check if two points connect (same row, X within tolerance)."""
-        x_diff = abs(p1.real - p2.real)
-        y_diff = abs(p1.imag - p2.imag)
-        return x_diff < tolerance and y_diff < y_tolerance
+        """Check if two points connect using Euclidean distance."""
+        # Use proper distance calculation - works for any pattern (spirals, curves, etc.)
+        dist = abs(p1 - p2)  # Complex number distance = Euclidean distance
+        return dist < tolerance
 
     merged = []
 

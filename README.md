@@ -242,7 +242,11 @@ Built for the [vpype](https://github.com/abey79/vpype) ecosystem by [Abey79](htt
 
 ## Changelog
 
-### v0.4.2 (Current - Beta)
+### v0.4.3 (Current - Beta)
+- **FIXED**: Diagonal lines appearing when using `--z-from-svg` with spiral/curved patterns
+- **FIXED**: Line merge algorithm now uses proper Euclidean distance instead of row-based logic
+
+### v0.4.2 (Beta)
 - **ADDED**: Support for CSS class-based stroke colors in SVG files (e.g., from Adobe Illustrator)
 - **FIXED**: SVG color lookup now works with both inline stroke attributes and CSS `<style>` definitions
 - **FIXED**: Coordinate offset bug - Z values now correctly vary along merged strokes
