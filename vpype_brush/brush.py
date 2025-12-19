@@ -596,9 +596,11 @@ def calculate_z(distance_from_start, total_distance, z_up, z_down, press_distanc
 @click.option('--unit', default='mm', type=str, help='Output units (mm, cm, in, etc.)')
 @click.option('--merge-tolerance', default=1.0, type=float,
               help='Distance tolerance (mm) for merging connected lines. Set to 0 to disable merging.')
+@click.option('--z-travel', default=None, type=float,
+              help='Z height for traveling between strokes (mm). Defaults to z-up if not specified.')
 @click.option('--output', '-o', type=click.Path(), help='Output G-code file path')
 @vpype_cli.global_processor
-def brush(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_distance, press_distance, lift_distance, segment_length, feed_rate, unit, merge_tolerance, output):
+def brush(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_distance, press_distance, lift_distance, segment_length, feed_rate, unit, merge_tolerance, z_travel, output):
     """
     Add gradual Z-axis pressure variation for brush plotting.
 
@@ -612,11 +614,14 @@ def brush(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_distance, p
         vpype read input.svg brush --z-from-svg input.svg --z-up -3 --z-down -20 -o output.gcode
     """
 
+    # Default z_travel to z_up if not specified
+    effective_z_travel = z_travel if z_travel is not None else z_up
+
     if output:
         # Direct G-code output mode
         generate_gcode(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_distance,
                        press_distance, lift_distance, segment_length, feed_rate, unit,
-                       merge_tolerance, output)
+                       merge_tolerance, effective_z_travel, output)
         return document
     else:
         # Process geometry (subdivide lines with Z variations)
@@ -686,13 +691,17 @@ def process_geometry(document, z_up, z_down, z_from_color, press_distance, lift_
 
 def generate_gcode(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_distance,
                    press_distance, lift_distance, segment_length, feed_rate, unit,
-                   merge_tolerance, output_path):
+                   merge_tolerance, z_travel, output_path):
     """
     Generate G-code directly with Z variations.
     Properly scales coordinates from vpype's internal units to the target unit.
     Uses simultaneous XYZ movements for fluid, natural brush strokes.
 
     If z_from_svg is provided, uses spatial color lookup for smooth Z transitions.
+
+    Args:
+        z_up: Z height for light pressure drawing (upper bound for color interpolation)
+        z_travel: Z height for traveling between strokes (pen fully lifted)
     """
     # Get the unit scale factor (converts from vpype internal units to target unit)
     # vpype uses CSS pixels internally (1px = 1/96 inch = 0.2645833mm)
@@ -728,7 +737,7 @@ def generate_gcode(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_di
         gcode_lines.append(f"G21 ; Set units to millimeters (output in {unit})")
 
     gcode_lines.append("G90 ; Use absolute coordinates")
-    gcode_lines.append(f"G0 Z{z_up:.4f} ; Pen up")
+    gcode_lines.append(f"G0 Z{z_travel:.4f} ; Pen up (travel height)")
     gcode_lines.append(f"F{feed_rate:.1f} ; Set feed rate")
     gcode_lines.append("")
 
@@ -833,8 +842,8 @@ def generate_gcode(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_di
                     z = smoothed_z_values[i]
                     gcode_lines.append(f"G1 X{x_scaled:.4f} Y{y_scaled:.4f} Z{z:.4f}")
 
-                # Pen up
-                gcode_lines.append(f"G0 Z{z_up:.4f}")
+                # Pen up (travel height)
+                gcode_lines.append(f"G0 Z{z_travel:.4f}")
                 gcode_lines.append("")
                 continue
 
@@ -857,8 +866,8 @@ def generate_gcode(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_di
                 # Simultaneous XYZ move for fluid brush strokes
                 gcode_lines.append(f"G1 X{x_scaled:.4f} Y{y_scaled:.4f} Z{z:.4f}")
 
-            # Pen up
-            gcode_lines.append(f"G0 Z{z_up:.4f}")
+            # Pen up (travel height)
+            gcode_lines.append(f"G0 Z{z_travel:.4f}")
             gcode_lines.append("")
 
     # G-code footer

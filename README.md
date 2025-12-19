@@ -63,6 +63,7 @@ vpype read input.svg \
 |-----------|---------|-------------|
 | `--z-up` | -3.0 | Z height for light pressure (white colors) in mm |
 | `--z-down` | -20.0 | Z height for full pressure (black colors) in mm |
+| `--z-travel` | (z-up) | Z height for traveling between strokes in mm (defaults to z-up) |
 | `--z-from-color` | false | Set Z from layer color (uniform per layer) |
 | `--z-from-svg` | none | Path to SVG for spatial color lookup at each point |
 | `--z-smooth-distance` | 5.0 | Gaussian smoothing radius for Z transitions in mm |
@@ -111,8 +112,10 @@ vpype read grayscale.svg brush --z-from-color --z-up -3 --z-down -20 -o output.g
 Looks up the color from the original SVG file at each point along the stroke. This allows varying pressure *within* a single stroke based on the color at each position. Uses Gaussian smoothing for smooth transitions. No press/lift envelope - the SVG encodes the full pressure curve.
 
 ```bash
-vpype read artwork.svg brush --z-from-svg artwork.svg --z-up -3 --z-down -20 --z-smooth-distance 5 -o output.gcode
+vpype read artwork.svg brush --z-from-svg artwork.svg --z-travel -3 --z-up -8 --z-down -20 --z-smooth-distance 5 -o output.gcode
 ```
+
+Note: `--z-travel` sets a safe height for moving between strokes (pen fully lifted), while `--z-up` defines the lightest drawing pressure (for white colors). If not specified, `--z-travel` defaults to `--z-up`.
 
 This mode is ideal for:
 - Grayscale artwork where color represents pressure/shading
@@ -201,7 +204,7 @@ vpype read grayscale-artwork.svg brush --z-from-color --z-up -3 --z-down -20 -o 
 ### SVG Spatial Pressure (Varying Within Strokes)
 Use `--z-from-svg` for pressure that varies at each point based on the original SVG colors:
 ```bash
-vpype read gradient-artwork.svg brush --z-from-svg gradient-artwork.svg --z-up -3 --z-down -20 --z-smooth-distance 5 -o variable.gcode
+vpype read gradient-artwork.svg brush --z-from-svg gradient-artwork.svg --z-travel -3 --z-up -8 --z-down -20 --z-smooth-distance 5 -o variable.gcode
 ```
 
 ### Reduce Pen Lifts
@@ -239,7 +242,10 @@ Built for the [vpype](https://github.com/abey79/vpype) ecosystem by [Abey79](htt
 
 ## Changelog
 
-### v0.3.1 (Current - Beta)
+### v0.4.0 (Current - Beta)
+- **ADDED**: `--z-travel` option for separate travel height between strokes (defaults to z-up for backward compatibility)
+
+### v0.3.1 (Beta)
 - **ADDED**: `--z-from-svg` option for spatial color lookup - Z pressure varies within strokes based on original SVG colors
 - **ADDED**: `--z-smooth-distance` option for Gaussian smoothing of Z transitions
 - **ADDED**: `--merge-tolerance` option to merge connected path segments and reduce pen lifts
