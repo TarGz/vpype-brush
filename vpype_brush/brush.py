@@ -139,18 +139,59 @@ def rgb_to_grayscale_value(rgb):
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
 
 
-def get_svg_element_stroke(element, inherited_stroke=None):
-    """Get the stroke color of an SVG element."""
+def parse_css_styles(svg_root, svg_ns):
+    """Parse stroke colors from CSS <style> blocks.
+
+    Handles both simple selectors (.st0 { stroke: #xxx; }) and
+    grouped selectors (.st0, .st1, .st2 { stroke: #xxx; }).
+
+    Returns:
+        Dict mapping class names to stroke color strings.
+    """
+    styles = {}
+    for style_elem in svg_root.iter(f'{{{svg_ns}}}style'):
+        css_text = style_elem.text or ''
+        # Parse CSS rules: selectors { properties }
+        for match in re.finditer(r'([^{]+)\{([^}]+)\}', css_text):
+            selectors = match.group(1)
+            properties = match.group(2)
+            stroke_match = re.search(r'stroke:\s*([^;]+)', properties)
+            if stroke_match:
+                stroke_color = stroke_match.group(1).strip()
+                # Extract class names from selectors like ".st0, .st1"
+                for class_match in re.finditer(r'\.(\w+)', selectors):
+                    styles[class_match.group(1)] = stroke_color
+    return styles
+
+
+def get_svg_element_stroke(element, inherited_stroke=None, css_styles=None):
+    """Get the stroke color of an SVG element.
+
+    Checks in order:
+    1. Inline stroke attribute
+    2. Inline style attribute
+    3. CSS class (if css_styles dict provided)
+    4. Inherited stroke from parent
+    """
+    # 1. Check inline stroke attribute
     stroke = element.get('stroke')
     if stroke and stroke != 'none':
         return stroke
 
+    # 2. Check inline style attribute
     style = element.get('style', '')
     style_match = re.search(r'stroke:\s*([^;]+)', style)
     if style_match:
         stroke = style_match.group(1).strip()
         if stroke and stroke != 'none':
             return stroke
+
+    # 3. Check CSS class
+    if css_styles:
+        class_attr = element.get('class', '')
+        for class_name in class_attr.split():
+            if class_name in css_styles:
+                return css_styles[class_name]
 
     return inherited_stroke
 
@@ -330,11 +371,16 @@ def build_svg_color_index(svg_file):
     spatial_index = SpatialColorIndex(cell_size=5.0)
     default_stroke = root.get('stroke', 'black')
 
+    # Parse CSS styles from <style> blocks (for SVGs that use CSS classes)
+    css_styles = parse_css_styles(root, SVG_NS)
+    if css_styles:
+        click.echo(f"  Found {len(css_styles)} CSS class stroke definitions")
+
     # First pass: collect all drawable elements with their inherited stroke
     drawable_elements = []
 
     def collect_elements(element, inherited_stroke=None):
-        current_stroke = get_svg_element_stroke(element, inherited_stroke)
+        current_stroke = get_svg_element_stroke(element, inherited_stroke, css_styles)
         tag_local = element.tag.replace(f'{{{SVG_NS}}}', '')
 
         if tag_local in ['path', 'line', 'polyline', 'polygon']:
@@ -722,15 +768,10 @@ def generate_gcode(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_di
 
     # Build spatial color index if z_from_svg is provided
     svg_color_index = None
-    svg_offset_x = 0
-    svg_offset_y = 0
     if z_from_svg:
         click.echo(f"Building color index from SVG: {z_from_svg}")
         svg_color_index = build_svg_color_index(z_from_svg)
         click.echo(f"  Indexed {len(svg_color_index.segments)} path segments")
-        # vpype normalizes coords to start at 0, but SVG content may have an offset
-        svg_offset_x = svg_color_index.min_x
-        svg_offset_y = svg_color_index.min_y
         click.echo(f"  SVG bounds: ({svg_color_index.min_x:.1f}, {svg_color_index.min_y:.1f}) to ({svg_color_index.max_x:.1f}, {svg_color_index.max_y:.1f})")
 
     gcode_lines = []
@@ -825,8 +866,9 @@ def generate_gcode(document, z_up, z_down, z_from_color, z_from_svg, z_smooth_di
                         x_scaled = x / unit_scale
                         y_scaled = y / unit_scale
                         scaled_points.append((x_scaled, y_scaled))
-                        grayscale = svg_color_index.find_grayscale_at(
-                            x_scaled + svg_offset_x, y_scaled + svg_offset_y)
+                        # vpype preserves original SVG coordinates, so lookup directly
+                        # (no offset needed - point coords are already in SVG space)
+                        grayscale = svg_color_index.find_grayscale_at(x_scaled, y_scaled)
                         target_z = z_down + grayscale * (z_up - z_down)
                         raw_z_values.append(target_z)
 
